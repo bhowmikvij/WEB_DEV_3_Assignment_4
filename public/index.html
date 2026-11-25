@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Connect - Chat Test Client</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 12px; }
+  input, button { padding: 8px; margin: 4px 0; }
+  #login, #chat { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  #chat { display: none; }
+  #log { height: 260px; overflow-y: auto; background: #f6f6f6; padding: 8px; border-radius: 6px; }
+  .sys { color: #888; font-style: italic; }
+  .err { color: #c00; }
+</style>
+</head>
+<body>
+<h2>Secure Connect - Real-Time Chat</h2>
+
+<div id="login">
+  <h3>1. Login</h3>
+  <input id="email" placeholder="email"><br>
+  <input id="password" type="password" placeholder="password"><br>
+  <button onclick="login()">Login</button>
+  <span id="loginMsg" class="err"></span>
+</div>
+
+<div id="chat">
+  <h3>2. Chat - <span id="who"></span></h3>
+  <input id="room" value="general"> <button onclick="joinRoom()">Join room</button>
+  <div id="log"></div>
+  <input id="text" placeholder="Type a message" style="width:70%" onkeydown="if(event.key==='Enter')send()">
+  <button onclick="send()">Send</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  let socket, currentRoom = 'general';
+  const $ = (id) => document.getElementById(id);
+
+  function addLine(html, cls) {
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = html;
+    $('log').appendChild(d);
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+
+  async function login() {
+    $('loginMsg').textContent = '';
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: $('email').value, password: $('password').value }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $('loginMsg').textContent = data.message; return; }
+
+    const payload = JSON.parse(atob(data.token.split('.')[1]));
+    $('who').textContent = payload.username;
+    $('login').style.display = 'none';
+    $('chat').style.display = 'block';
+
+    socket = io({ auth: { token: data.token } });
+    socket.on('connect_error', (e) => addLine('Connection error: ' + e.message, 'err'));
+    socket.on('history', (list) => list.forEach((m) => addLine(`[${m.room}] ${m.username}: ${m.text}`)));
+    socket.on('chatMessage', (m) => addLine(`[${m.room}] ${m.username}: ${m.text}`));
+    socket.on('systemMessage', (t) => addLine(t, 'sys'));
+    socket.on('errorMessage', (t) => addLine(t, 'err'));
+    joinRoom();
+  }
+
+  function joinRoom() {
+    currentRoom = $('room').value.trim() || 'general';
+    socket.emit('joinRoom', currentRoom);
+    addLine('You joined ' + currentRoom, 'sys');
+  }
+
+  function send() {
+    const text = $('text').value;
+    if (!text.trim()) return;
+    socket.emit('chatMessage', { room: currentRoom, text });
+    $('text').value = '';
+  }
+</script>
+</body>
+</html>
